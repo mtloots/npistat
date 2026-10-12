@@ -1,0 +1,24 @@
+url: https://mtloots.github.io/npistat/
+
+template:
+  bootstrap: 5
+
+reference:
+  - title: Censored data
+    desc: >
+      M-functions and survival bounds for data censored on the right, the left or within
+      intervals. The computation runs on a shared pure-C back-end that is also bound from Python,
+      and the two front ends are checked against each other value by value.
+    contents:
+      - npi_survival
+      - npi_mfun
+      - npi_rc
+      - npi_turnbull
+  - title: Several future observations
+    desc: Bounds on the number of events among future observations, from Bernoulli or censored data.
+    contents:
+      - npi_bernoulli
+      - npi_future
+  - title: Package
+    contents:
+      - npistat-package

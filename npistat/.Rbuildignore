@@ -1,0 +1,10 @@
+^.*\.Rproj$
+^\.Rproj\.user$
+^README\.Rmd$
+^README\.html$
+^\.github$
+^_pkgdown\.yml$
+^docs$
+^cran-comments\.md$
+^src/.*\.gc(da|no)$
+^.*\.bak.*$

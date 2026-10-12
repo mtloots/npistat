@@ -1,0 +1,81 @@
+---
+title: "Nonparametric predictive inference with npistat"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Nonparametric predictive inference with npistat}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+```
+
+```{r setup}
+library(npistat)
+```
+
+## The idea
+
+Nonparametric predictive inference (NPI) starts from Hill's assumption $A_{(n)}$: given $n$
+exchangeable observations, the next one falls in each of the $n+1$ intervals they form with
+probability $1/(n+1)$. Statements are lower and upper probabilities about future observations,
+never about a parameter, and they are carried by M-functions, probability masses on intervals that
+sum to one (Coolen and Yan, 2004).
+
+## Right-censored data
+
+For the six-observation example of Yan (2002), events at 3, 6, 8 and 9 and censorings at 4 and 7, the
+M-functions are the $\text{rc-}A_{(n)}$ values of Coolen and Yan, in units of $1/35$:
+
+```{r}
+tm <- c(3, 4, 6, 7, 8, 9); ev <- c(1, 0, 1, 0, 1, 1)
+M <- npi_mfun(tm, ifelse(ev == 1, tm, Inf))
+transform(M, mass35 = mass * 35)
+npi_survival(tm, ifelse(ev == 1, tm, Inf), t = c(5, 7.5, 9.5))
+```
+
+The upper survival probability beyond the last event is $8/35$, not zero: nothing in the data says
+the next observation cannot exceed the largest event.
+
+## Interval-censored data
+
+Each observation is a region $[L_i, R_i]$. The survival bounds of `npi_survival()` are the union of
+a sharing specification, which reproduces $\text{rc-}A_{(n)}$ under right censoring, and a
+specification anchored to the Turnbull estimator, clipped to the bound over all completions of the
+data. They contain the Turnbull estimator under every censoring pattern. On six observations where
+sharing alone would not:
+
+```{r}
+L <- c(3.5, 3.4, 4.7, 6.9, 5.6, 2.4); R <- c(6.5, 6.8, 5.9, 6.9, 7.9, 6.4)
+npi_turnbull(L, R)
+npi_survival(L, R, t = 5.75, members = TRUE)
+```
+
+Evaluate the bounds away from the data values: at a tied value the members count the tie on
+opposite sides.
+
+## Several future Bernoulli observations
+
+With $k$ events among $n$ past observations, the bounds on the number of events among $m$ future
+ones follow from $A_{(n)}, \dots, A_{(n+m-1)}$ (Coolen, 1998). With no events at all, the upper
+probability of at least one event among the next $m$ is $m/(n+m)$:
+
+```{r}
+npi_bernoulli(n = 394, k = 0, m = 100, r = 1)
+npi_bernoulli(n = 1000, k = 2, m = 100, r = 1:5)
+```
+
+The future observations are exchangeable with the past and dependent given the data; a common
+factor, such as systematic default risk, is not represented.
+
+## References
+
+Coolen, F. P. A. (1998). Low structure imprecise predictive inference for Bayes' problem.
+*Statistics and Probability Letters*, 36, 349-357.
+
+Coolen, F. P. A. and Yan, K. J. (2004). Nonparametric predictive inference with right-censored data.
+*Journal of Statistical Planning and Inference*, 126, 25-54.
+
+Turnbull, B. W. (1976). The empirical distribution function with arbitrarily grouped, censored and
+truncated data. *Journal of the Royal Statistical Society, Series B*, 38, 290-295.

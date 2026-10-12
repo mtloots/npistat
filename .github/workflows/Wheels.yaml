@@ -1,0 +1,71 @@
+# Build binary wheels for the Python front.
+#
+# MANUAL ONLY (workflow_dispatch): Actions minutes are metered -- Linux counts 1x but macOS 10x --
+# so this does not run on every push. Trigger it before a PyPI release; the sdist alone works but
+# forces every user to have a compiler. Linux and macOS only; Windows is untested and not claimed.
+name: wheels
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: publish to PyPI after building (trusted publishing, no token)
+        required: true
+        default: false
+        type: boolean
+
+permissions: read-all
+
+jobs:
+  build:
+    name: npistat-py on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v2.21.3
+        with:
+          package-dir: npistat-py
+        env:
+          CIBW_BUILD: cp310-* cp311-* cp312-* cp313-*
+          CIBW_SKIP: "*-musllinux_* *_i686"
+          CIBW_ARCHS_LINUX: x86_64
+          CIBW_ARCHS_MACOS: arm64
+          CIBW_TEST_REQUIRES: pytest
+          CIBW_TEST_COMMAND: python -c "import npistat as m; print(m.__name__, 'imported from a wheel with no build step')"
+      - name: Build sdist
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          python -m pip install --upgrade build
+          python -m build --sdist --outdir wheelhouse npistat-py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-npistat-py-${{ matrix.os }}
+          path: ./wheelhouse/*
+
+  # PyPI trusted publishing: a publisher entry on PyPI must name this repository and this file.
+  publish:
+    name: publish npistat to PyPI
+    needs: build
+    if: inputs.publish
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-npistat-py-*
+          path: dist
+          merge-multiple: true
+      - name: What is about to be published
+        run: ls -l dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist

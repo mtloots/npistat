@@ -1,0 +1,12 @@
+__pycache__/
+.DS_Store
+*.bak-*
+*.dylib
+*.egg-info/
+*.o
+*.Rcheck/
+*.so
+*.tar.gz
+npistat-py/dist/
+build/
+.pytest_cache/

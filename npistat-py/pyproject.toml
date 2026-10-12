@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "npistat"
+version = "0.1.0"
+description = "Nonparametric predictive inference for censored and Bernoulli data"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "GPL-3.0-or-later"}
+authors = [{name = "M. Theodor Loots", email = "theo.loots@gmail.com"}]
+
+[project.urls]
+Homepage = "https://github.com/mtloots/npistat"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+npistat = ["*.c"]

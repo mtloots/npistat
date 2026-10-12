@@ -1,0 +1,29 @@
+Package: npistat
+Type: Package
+Title: Nonparametric Predictive Inference for Censored and Bernoulli Data
+Version: 0.1.0
+Authors@R: person("M. Theodor", "Loots", role = c("aut", "cre"), email = "theo.loots@gmail.com",
+                    comment = c(ORCID = "0000-0001-7722-3913"))
+Description: Lower and upper probabilities for future observations under Hill's assumption A(n)
+    (Hill 1968 <doi:10.1080/01621459.1968.11009286>), expressed through M-functions. For data
+    censored on the right, the left or within intervals of arbitrary width, the package gives the
+    M-functions of a sharing assumption that reproduces the right-censored theory of Coolen and Yan
+    (2004) <doi:10.1016/j.jspi.2003.07.004> exactly, the Turnbull (1976) estimator, and survival
+    bounds for the next observation that contain that estimator under every censoring pattern. For
+    Bernoulli data it gives bounds on the number of events among several future observations
+    (Coolen 1998 <doi:10.1016/S0167-7152(97)00081-3>), and the same bounds from censored data by
+    completions. The same C sources back the 'Python' package 'npistat'.
+URL: https://github.com/mtloots/npistat
+BugReports: https://github.com/mtloots/npistat/issues
+License: GPL-3
+Encoding: UTF-8
+Imports: stats
+NeedsCompilation: yes
+Suggests:
+    knitr,
+    rmarkdown,
+    testthat (>= 3.0.0)
+VignetteBuilder: knitr
+Config/testthat/edition: 3
+Roxygen: list(markdown = FALSE)
+Config/roxygen2/version: 8.0.0
