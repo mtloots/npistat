@@ -19,6 +19,11 @@ reference:
     contents:
       - npi_bernoulli
       - npi_future
+  - title: Two-level bounds
+    desc: Exchangeable periods with exchangeable units within a period, for systematic variation between periods.
+    contents:
+      - npi_twolevel
+      - npi_rates
   - title: Package
     contents:
       - npistat-package

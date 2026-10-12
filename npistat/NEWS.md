@@ -9,3 +9,6 @@ First release.
 * `npi_turnbull()`: the Turnbull estimator by self-consistency.
 * `npi_bernoulli()`, `npi_future()`: bounds on the number of events among several future
   observations, from Bernoulli data and from censored data by completions.
+* `npi_twolevel()`, `npi_rates()`: two-level bounds, with Hill's A(n) over exchangeable periods
+  (carrying variation between periods, such as systematic default risk) and binomial counts within a
+  period; a period's rate may be an interval derived from its counts.

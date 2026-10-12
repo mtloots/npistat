@@ -11,7 +11,8 @@ Lower and upper probabilities for future observations under Hill's assumption
 M-functions and survival bounds for data censored on the right, the left or within intervals
 (\code{\link{npi_mfun}}, \code{\link{npi_survival}}, \code{\link{npi_rc}},
 \code{\link{npi_turnbull}}), and bounds for events among several future Bernoulli observations
-(\code{\link{npi_bernoulli}}, \code{\link{npi_future}}).
+(\code{\link{npi_bernoulli}}, \code{\link{npi_future}}), and two-level bounds for exchangeable
+periods with exchangeable units within a period (\code{\link{npi_twolevel}}).
 }
 \seealso{
 Useful links:

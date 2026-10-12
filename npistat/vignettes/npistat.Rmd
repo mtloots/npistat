@@ -69,6 +69,21 @@ npi_bernoulli(n = 1000, k = 2, m = 100, r = 1:5)
 The future observations are exchangeable with the past and dependent given the data; a common
 factor, such as systematic default risk, is not represented.
 
+## Exchangeable periods: two-level bounds
+
+When units within a period share a common factor, such as the economic cycle for defaults, the
+periods rather than the units are exchangeable. `npi_twolevel()` applies $A_{(n)}$ to the past
+periods' rates and takes the count within the next period to be binomial given its rate. Whatever the
+data, the upper probability of any number of events is at least $1/(n+1)$: $n$ periods support no
+upper quantile beyond level $n/(n+1)$.
+
+```{r}
+rates <- c(0, 0, 0.0035, 0.0034, 0.0068, 0, 0.0034, 0, 0, 0.0061)
+npi_twolevel(rates, m = 100, r = 1:3)
+iv <- npi_rates(k = c(0, 2, 1), N = c(1031, 1062, 1083))
+npi_twolevel(iv$L, iv$R, m = 1100, r = 1:2)
+```
+
 ## References
 
 Coolen, F. P. A. (1998). Low structure imprecise predictive inference for Bayes' problem.

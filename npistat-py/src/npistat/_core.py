@@ -76,6 +76,7 @@ for _f, _sig in (
     ("C_npi_turnbull", [_ip, _dp, _dp, _ip, _dp, _ip, _dp, _dp, _dp]),
     ("C_npi_bounds", [_ip, _dp, _dp, _ip, _dp, _ip, _ip, _dp] + [_dp] * 10),
     ("C_npi_rc", [_ip, _dp, _ip, _dp, _dp, _dp]),
+    ("C_npi_twolevel", [_ip, _dp, _dp, _ip, _ip, _ip, _ip, _dp, _dp]),
 ):
     getattr(_lib, _f).argtypes = _sig
     getattr(_lib, _f).restype = None
@@ -211,3 +212,30 @@ def npi_survival(L, R, t, closedR=True, eps=1e-7, members=False):
             row[nm] = out[k][j]
         res.append(row)
     return res
+
+
+def npi_twolevel(L, R=None, m=1, r=1, closedR=True):
+    """Two-level bounds: lower and upper probabilities that at least r of m units have an event in
+    the next period, when past periods are exchangeable (Hill's A(n) on their rates, given as
+    proportions; L == R for a rate taken as known, L < R for an interval) and units within a period
+    are exchangeable (binomial given the period's rate). The upper probability is always at least
+    1/(n+1). Returns a list of (r, lower, upper)."""
+    L = _vec(L)
+    R = L[:] if R is None else _vec(R)
+    if len(L) != len(R):
+        raise ValueError("L and R must have the same length")
+    if any(not (0.0 <= l <= u <= 1.0) for l, u in zip(L, R)):
+        raise ValueError("rates must satisfy 0 <= L <= R <= 1")
+    rs = [int(v) for v in (r if hasattr(r, "__len__") else [r])]
+    lo, up = _z(len(rs)), _z(len(rs))
+    _lib.C_npi_twolevel(_one(len(L)), _d(L), _d(R), _one(m), _i(rs), _one(len(rs)), _one(bool(closedR)), lo, up)
+    return [(rs[j], lo[j], up[j]) for j in range(len(rs))]
+
+
+def npi_rates(k, N):
+    """Interval-valued period rates [k/(N+1), (k+1)/(N+1)] from k events among N units in each
+    period. Returns (L, R) as two lists."""
+    k, N = _vec(k), _vec(N)
+    if len(k) != len(N) or any(a < 0 or a > b for a, b in zip(k, N)):
+        raise ValueError("need 0 <= k <= N, elementwise")
+    return [a / (b + 1) for a, b in zip(k, N)], [(a + 1) / (b + 1) for a, b in zip(k, N)]

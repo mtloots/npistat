@@ -332,3 +332,66 @@ void C_npi_rc(const int *n, const double *time, const int *status, double *lo, d
     }
     free(o);
 }
+
+/* ------------------------------------------------------------------------------------------- */
+/* two-level NPI: exchangeable years, exchangeable units within a year                          */
+/* ------------------------------------------------------------------------------------------- */
+
+/* P(Bin(m, t) >= r), summed on the side with the smaller probability so that neither a small
+   tail nor its complement is formed by cancellation. */
+static double binom_tail(int m, int r, double t) {
+    if (r <= 0) return 1.0;
+    if (r > m) return 0.0;
+    if (t <= 0.0) return 0.0;
+    if (t >= 1.0) return 1.0;
+    double lt = log(t), l1 = log1p(-t), s = 0.0;
+    if ((double)r > m * t) {
+        for (int k = r; k <= m; k++) s += exp(lchoose_((double)m, (double)k) + k * lt + (m - k) * l1);
+        return s > 1.0 ? 1.0 : s;
+    }
+    for (int k = 0; k < r; k++) s += exp(lchoose_((double)m, (double)k) + k * lt + (m - k) * l1);
+    s = 1.0 - s;
+    return s < 0.0 ? 0.0 : s;
+}
+
+/* Level one: past years' rates are known to lie in [L_j, R_j] within [0, 1] (L_j = R_j when the
+   rate is taken as known); the construction (A(n) on exact years, the union of M_S and M_P clipped
+   to M_C otherwise) gives lower and upper survival functions S_lo, S_up for next year's rate.
+   Level two: given that rate t, the number D of events among m units is Bin(m, t).
+   For the increasing function g(t) = P(Bin(m, t) >= r), the lower and upper probabilities are the
+   integrals of S_lo and S_up against dg over [0, 1], evaluated exactly on the segments between the
+   breakpoints of the step functions (the epsilon limit of the tie convention). r vectorised. */
+void C_npi_twolevel(const int *n, const double *L, const double *R, const int *m, const int *r,
+                    const int *nr, const int *closedR, double *lo, double *up) {
+    int nn = *n, nb = 0;
+    double *bp = (double *)malloc(sizeof(double) * (2 * nn + 2));
+    bp[nb++] = 0.0; bp[nb++] = 1.0;
+    for (int i = 0; i < nn; i++) {
+        if (L[i] > 0.0 && L[i] < 1.0) bp[nb++] = L[i];
+        if (isfinite(R[i]) && R[i] > 0.0 && R[i] < 1.0) bp[nb++] = R[i];
+    }
+    nb = uniq(bp, nb);
+    int ns = nb - 1;
+    double *mid = (double *)malloc(sizeof(double) * (ns > 0 ? ns : 1));
+    for (int s = 0; s < ns; s++) mid[s] = 0.5 * (bp[s] + bp[s + 1]);
+    double *b[10];
+    for (int k = 0; k < 10; k++) b[k] = (double *)malloc(sizeof(double) * (ns > 0 ? ns : 1));
+    int *ex = (int *)malloc(sizeof(int) * (nn > 0 ? nn : 1));
+    double *R1 = (double *)malloc(sizeof(double) * (nn > 0 ? nn : 1));
+    for (int i = 0; i < nn; i++) { ex[i] = (L[i] == R[i]); R1[i] = isfinite(R[i]) && R[i] < 1.0 ? R[i] : 1.0; if (ex[i]) R1[i] = L[i]; }
+    double eps = 1e-12;
+    C_npi_bounds(n, L, R1, ex, &eps, closedR, &ns, mid, b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9]);
+    for (int j = 0; j < *nr; j++) {
+        double gl = binom_tail(*m, r[j], bp[0]), a = 0.0, c = 0.0;
+        for (int s = 0; s < ns; s++) {
+            double gr = binom_tail(*m, r[j], bp[s + 1]), dg = gr - gl;
+            a += b[0][s] * dg; c += b[1][s] * dg; gl = gr;
+        }
+        double g0 = binom_tail(*m, r[j], 0.0);
+        lo[j] = g0 + a; up[j] = g0 + c;
+        if (lo[j] > 1.0) lo[j] = 1.0;
+        if (up[j] > 1.0) up[j] = 1.0;
+    }
+    for (int k = 0; k < 10; k++) free(b[k]);
+    free(bp); free(mid); free(ex); free(R1);
+}

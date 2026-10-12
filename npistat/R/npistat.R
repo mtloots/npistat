@@ -177,6 +177,63 @@ npi_survival <- function(L, R, t, closedR = TRUE, eps = 1e-7, members = FALSE) {
   out
 }
 
+#' Two-level bounds: exchangeable periods, exchangeable units within a period
+#'
+#' Lower and upper probabilities that at least \code{r} of \code{m} units default (or fail) in the
+#' next period, when past periods are exchangeable and units within a period are exchangeable.
+#' Level one applies Hill's \eqn{A_{(n)}} to the past periods' event rates, which carries the
+#' variation between periods (systematic risk) with no factor model; a rate known only to lie in
+#' an interval is handled by the construction of \code{\link{npi_survival}}. Level two takes the
+#' number of events among \code{m} units, given the next period's rate, to be binomial. The bounds
+#' are the integrals of the binomial tail against the lower and upper survival functions of the
+#' next period's rate.
+#'
+#' Whatever the data, the upper probability of at least one event, or of any number of events, is
+#' at least \eqn{1/(n+1)}: \code{n} past periods support no upper quantile statement beyond
+#' level \eqn{n/(n+1)}.
+#'
+#' @param L,R the past periods' rates, as proportions in \eqn{[0, 1]}: \code{L = R} for a rate taken
+#'   as known, \code{L < R} for a rate known only to lie in an interval (see \code{\link{npi_rates}}).
+#' @param m number of units in the next period.
+#' @param r vector of counts; the bounds are for at least \code{r} events.
+#' @param closedR tie convention, as in \code{\link{npi_mfun}}.
+#' @return A data frame with columns \code{r}, \code{lower} and \code{upper}.
+#' @examples
+#' ## 20 past years of a grade's annual default rate, 100 exposures next year
+#' th <- c(0, 0, 0.0035, 0.0034, 0.0068, 0, 0.0034, 0, 0, 0.0061,
+#'         0.0058, 0.0055, 0, 0, 0, 0.0017, 0, 0.0025, 0.0041, 0.0019)
+#' npi_twolevel(th, th, m = 100, r = 1:3)
+#' @export
+npi_twolevel <- function(L, R = L, m, r = 1, closedR = TRUE) {
+  L <- as.double(L); R <- as.double(R)
+  if (length(L) != length(R)) stop("L and R must have the same length")
+  if (any(is.na(L)) || any(is.na(R)) || any(L < 0) || any(R > 1) || any(R < L))
+    stop("rates must satisfy 0 <= L <= R <= 1")
+  r <- as.integer(r)
+  z <- .C("C_npi_twolevel", length(L), L, R, as.integer(m), r, length(r), as.integer(closedR),
+          lo = double(length(r)), up = double(length(r)), NAOK = TRUE, PACKAGE = "npistat")
+  data.frame(r = r, lower = z$lo, upper = z$up)
+}
+
+#' Interval-valued period rates from counts
+#'
+#' For each past period with \code{k} events among \code{N} units, the interval
+#' \eqn{[k/(N+1), (k+1)/(N+1)]} of nonparametric predictive probabilities for one further unit of
+#' that period (Coolen 1998), the form in which a rate observed with sampling noise enters
+#' \code{\link{npi_twolevel}}.
+#'
+#' @param k events in each period.
+#' @param N units in each period.
+#' @return A data frame with columns \code{L} and \code{R}.
+#' @examples
+#' npi_rates(k = c(0, 2, 1), N = c(1031, 1062, 1083))
+#' @export
+npi_rates <- function(k, N) {
+  k <- as.double(k); N <- as.double(N)
+  if (length(k) != length(N) || any(k < 0) || any(k > N)) stop("need 0 <= k <= N, elementwise")
+  data.frame(L = k / (N + 1), R = (k + 1) / (N + 1))
+}
+
 #' npistat: nonparametric predictive inference for censored and Bernoulli data
 #'
 #' Lower and upper probabilities for future observations under Hill's assumption
@@ -184,7 +241,8 @@ npi_survival <- function(L, R, t, closedR = TRUE, eps = 1e-7, members = FALSE) {
 #' M-functions and survival bounds for data censored on the right, the left or within intervals
 #' (\code{\link{npi_mfun}}, \code{\link{npi_survival}}, \code{\link{npi_rc}},
 #' \code{\link{npi_turnbull}}), and bounds for events among several future Bernoulli observations
-#' (\code{\link{npi_bernoulli}}, \code{\link{npi_future}}).
+#' (\code{\link{npi_bernoulli}}, \code{\link{npi_future}}), and two-level bounds for exchangeable
+#' periods with exchangeable units within a period (\code{\link{npi_twolevel}}).
 #' @useDynLib npistat, .registration = TRUE
 #' @keywords internal
 "_PACKAGE"

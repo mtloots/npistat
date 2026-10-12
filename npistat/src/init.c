@@ -19,6 +19,8 @@ extern void C_npi_bounds(const int*, const double*, const double*, const int*, c
                          const int*, const int*, const double*, double*, double*, double*, double*,
                          double*, double*, double*, double*, double*, double*);
 extern void C_npi_rc(const int*, const double*, const int*, double*, double*, double*);
+extern void C_npi_twolevel(const int*, const double*, const double*, const int*, const int*,
+                           const int*, const int*, double*, double*);
 
 static const R_CMethodDef CEntries[] = {
     {"C_npi_bern",     (DL_FUNC) &C_npi_bern,      7},
@@ -30,6 +32,7 @@ static const R_CMethodDef CEntries[] = {
     {"C_npi_turnbull", (DL_FUNC) &C_npi_turnbull,  9},
     {"C_npi_bounds",   (DL_FUNC) &C_npi_bounds,   18},
     {"C_npi_rc",       (DL_FUNC) &C_npi_rc,        6},
+    {"C_npi_twolevel", (DL_FUNC) &C_npi_twolevel,  9},
     {NULL, NULL, 0}
 };
 

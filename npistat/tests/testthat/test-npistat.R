@@ -81,3 +81,23 @@ test_that("completion bounds for a portfolio censored at a common horizon equal 
     expect_equal(c(f$lower, f$upper), c(b$lower, b$upper), tolerance = 1e-10)
   }
 })
+
+test_that("two-level bounds on known rates equal the closed form, and the 1/(n+1) ceiling holds", {
+  closed <- function(th, m, r) { s <- sort(th)
+    c(mean(pbinom(r - 1, m, c(0, s), lower.tail = FALSE)), mean(pbinom(r - 1, m, c(s, 1), lower.tail = FALSE))) }
+  set.seed(3)
+  for (rep in 1:30) { n <- sample(5:40, 1); th <- ifelse(runif(n) < 0.4, 0, runif(n) / 50)
+    for (m in c(1, 20, 500)) for (r in unique(c(1, 2, min(5, m), m))) {
+      b <- npi_twolevel(th, th, m, r)
+      expect_equal(c(b$lower, b$upper), closed(th, m, r), tolerance = 1e-10)
+      expect_gte(b$upper, 1 / (n + 1) - 1e-12) } }
+})
+
+test_that("two-level with one unit is A(n) on the rates' expectation; interval years widen nothing below zero", {
+  th <- c(0, 0.01, 0.02, 0.05); b <- npi_twolevel(th, th, 1, 1)
+  expect_equal(c(b$lower, b$upper), c(sum(th) / 5, (sum(th) + 1) / 5), tolerance = 1e-12)
+  iv <- npi_rates(c(0, 1, 2), c(1000, 1000, 1000))
+  expect_equal(iv$L, c(0, 1, 2) / 1001); expect_equal(iv$R, c(1, 2, 3) / 1001)
+  b <- npi_twolevel(iv$L, iv$R, 100, 1:3)
+  expect_true(all(b$lower >= 0 & b$lower <= b$upper & b$upper <= 1))
+})

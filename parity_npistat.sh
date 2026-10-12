@@ -14,7 +14,9 @@ tm <- c(3, 4, 6, 7, 8, 9); ev <- c(1, 0, 1, 0, 1, 1)
 s <- npi_survival(L, R, c(0.5, 2.25, 5.75, 7.1, 9.5), members = TRUE)
 v <- c(as.matrix(s[, -1]), npi_mfun(L, R)$mass, npi_rc(tm, ev)$mass, npi_turnbull(L, R)$mass,
        unlist(npi_bernoulli(1000, 2, 100, 1:5)[, 2:3]), unlist(npi_bernoulli(20000, 0, 100, 1)[, 2:3]),
-       unlist(npi_future(L, R, c(2, 6), 10, 2, "above")[, 2:3]), unlist(npi_future(L, R, c(2, 6), 10, 2, "below")[, 2:3]))
+       unlist(npi_future(L, R, c(2, 6), 10, 2, "above")[, 2:3]), unlist(npi_future(L, R, c(2, 6), 10, 2, "below")[, 2:3]),
+       unlist(npi_twolevel(c(0, 0, 0.0035, 0.0068, 0.0061, 0.0017), m = 100, r = 1:4)[, 2:3]),
+       { iv <- npi_rates(c(0, 2, 1, 0, 3), c(1031, 1062, 1083, 1500, 2900)); unlist(npi_twolevel(iv$L, iv$R, 3539, 1:3)[, 2:3]) })
 cat(sprintf("%.17g", v), sep = "\n")
 ' > "$OUT/r.txt"
 PYTHONPATH="$PKG/npistat-py/src" python3 - <<PY > "$OUT/py.txt"
@@ -30,6 +32,9 @@ b = p.npi_bernoulli(1000, 2, 100, [1, 2, 3, 4, 5]); v += [x[1] for x in b] + [x[
 b = p.npi_bernoulli(20000, 0, 100, 1); v += [b[0][1], b[0][2]]
 for side in ("above", "below"):
     f = p.npi_future(L, R, [2, 6], 10, 2, side); v += [x[1] for x in f] + [x[2] for x in f]
+t2 = p.npi_twolevel([0, 0, 0.0035, 0.0068, 0.0061, 0.0017], None, 100, [1, 2, 3, 4]); v += [x[1] for x in t2] + [x[2] for x in t2]
+a, b = p.npi_rates([0, 2, 1, 0, 3], [1031, 1062, 1083, 1500, 2900])
+t2 = p.npi_twolevel(a, b, 3539, [1, 2, 3]); v += [x[1] for x in t2] + [x[2] for x in t2]
 print("\n".join("%.17g" % x for x in v))
 PY
 if cmp -s "$OUT/r.txt" "$OUT/py.txt"; then

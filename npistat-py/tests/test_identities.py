@@ -102,3 +102,19 @@ def test_completion_equals_bernoulli_at_common_horizon():
         _, flo, fup = p.npi_future(L, R, 0.95, 50, 2, side="below")[0]
         _, blo, bup = p.npi_bernoulli(200, k, 50, 2)[0]
         assert close(flo, blo, 1e-10) and close(fup, bup, 1e-10)
+
+
+def test_twolevel_closed_form_and_ceiling():
+    from math import comb
+    def tail(m, r, t):
+        return sum(comb(m, k) * t ** k * (1 - t) ** (m - k) for k in range(r, m + 1))
+    rng = random.Random(3)
+    for _ in range(20):
+        n = rng.randint(5, 30)
+        th = [0.0 if rng.random() < 0.4 else rng.random() / 50 for _ in range(n)]
+        s = sorted(th)
+        for m, r in ((1, 1), (20, 1), (20, 2), (50, 5)):
+            lo = sum(tail(m, r, t) for t in [0.0] + s) / (n + 1)
+            up = sum(tail(m, r, t) for t in s + [1.0]) / (n + 1)
+            _, a, b = p.npi_twolevel(th, th, m, r)[0]
+            assert close(a, lo, 1e-10) and close(b, up, 1e-10) and b >= 1 / (n + 1) - 1e-12
