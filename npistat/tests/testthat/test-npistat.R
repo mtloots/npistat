@@ -53,6 +53,22 @@ test_that("the construction contains the Turnbull set and lies inside the comple
   }
 })
 
+test_that("the Turnbull estimator satisfies its optimality conditions to machine precision", {
+  gen <- function(n, pex) { Tt <- rexp(n, 1/5); ex <- runif(n) < pex; L <- Tt; R <- Tt
+    for (i in which(!ex)) { ins <- sort(runif(sample(2:6, 1), 0, 15)); L[i] <- max(c(0, ins[ins < Tt[i]])); hi <- ins[ins >= Tt[i]]; R[i] <- if (length(hi)) min(hi) else Inf }
+    list(L = L, R = R) }
+  set.seed(7)
+  for (rep in 1:30) {                       # inspection designs, including interval-only data at n = 240, where the
+    n <- c(10, 40, 240)[1 + rep %% 3]; d <- gen(n, if (rep %% 2) 0.5 else 0)    # plain iteration stopped up to 1e-4 short
+    tb <- npi_turnbull(d$L, d$R); RR <- ifelse(is.finite(d$R), d$R, 3 * max(d$L) + 1)
+    A <- outer(seq_len(n), seq_len(nrow(tb)), function(i, j) tb$left[j] >= d$L[i] & tb$right[j] <= RR[i]) * 1
+    g <- as.vector(t(A) %*% (1 / as.vector(A %*% tb$mass))); on <- tb$mass > 0
+    expect_lt(max(abs(g[on] - n)) / n, 1e-12)                      # sum_i a_ij / d_i = n on the support
+    if (any(!on)) expect_lte(max(g[!on] - n) / n, 1e-12)            # and at most n off it
+    expect_equal(sum(tb$mass), 1, tolerance = 1e-14)
+  }
+})
+
 test_that("the leak example: sharing exceeds the Turnbull lower bound, the construction does not", {
   L <- c(3.5, 3.4, 4.7, 6.9, 5.6, 2.4); R <- c(6.5, 6.8, 5.9, 6.9, 7.9, 6.4)
   s <- npi_survival(L, R, 5.75, members = TRUE)

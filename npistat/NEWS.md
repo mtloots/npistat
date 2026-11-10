@@ -1,3 +1,12 @@
+# npistat 0.1.1
+
+* `npi_turnbull()`, and through it `npi_survival()`: the self-consistency iteration now only locates the
+  support; a damped active-set Newton method on the optimality conditions then fixes the masses to machine
+  precision, with one self-consistency step at the end. The iteration alone could stop short of the optimum
+  by up to 1e-4 in the survival bounds (current-status and interval-only inspection data). The plain iteration
+  remains the fallback when the masses are not identified. New tests check the optimality conditions to 1e-12.
+* Python front: a cached build of the C back-end older than the C source is rebuilt instead of reused.
+
 # npistat 0.1.0
 
 First release.

@@ -78,6 +78,29 @@ def test_containments():
             assert r["S.lower"] >= r["C.lower"] - 1e-12
 
 
+def test_turnbull_optimality_to_machine_precision():
+    import random
+    rng = random.Random(7)
+    def gen(n, pex):
+        L, R = [], []
+        for _ in range(n):
+            t = rng.expovariate(1 / 5)
+            if rng.random() < pex: L.append(t); R.append(t); continue
+            ins = sorted(rng.uniform(0, 15) for _ in range(rng.randint(2, 6)))
+            lo = [x for x in ins if x < t]; hi = [x for x in ins if x >= t]
+            L.append(max(lo) if lo else 0.0); R.append(min(hi) if hi else INF)
+        return L, R
+    for rep in range(30):
+        n = (10, 40, 240)[rep % 3]; L, R = gen(n, 0.5 if rep % 2 else 0.0)
+        tb = p.npi_turnbull(L, R); big = 3 * max(L) + 1; RR = [r if r != INF else big for r in R]
+        A = [[1.0 if (c[0] >= L[i] and c[1] <= RR[i]) else 0.0 for c in tb] for i in range(n)]
+        d = [sum(a * c[2] for a, c in zip(A[i], tb)) for i in range(n)]
+        g = [sum(A[i][j] / d[i] for i in range(n)) for j in range(len(tb))]
+        assert max(abs(gj - n) for gj, c in zip(g, tb) if c[2] > 0) / n < 1e-12
+        assert all((gj - n) / n <= 1e-12 for gj, c in zip(g, tb) if c[2] == 0)
+        assert abs(sum(c[2] for c in tb) - 1) < 1e-14
+
+
 def test_leak_example():
     L = [3.5, 3.4, 4.7, 6.9, 5.6, 2.4]; R = [6.5, 6.8, 5.9, 6.9, 7.9, 6.4]
     r = p.npi_survival(L, R, 5.75, members=True)[0]

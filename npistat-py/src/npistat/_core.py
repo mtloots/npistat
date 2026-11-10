@@ -59,7 +59,9 @@ def _compile_from_source():
 _libpath = _find_built()
 if _libpath is None:
     _cached = _os.path.join(_cache_dir(), "libnpistat." + _ext())
-    _libpath = _cached if _os.path.exists(_cached) else _compile_from_source()
+    _srcs = [f for f in _glob.glob(_os.path.join(_here, "*.c")) if _os.path.basename(f) != "init.c"]
+    _fresh = _os.path.exists(_cached) and all(_os.path.getmtime(_cached) >= _os.path.getmtime(f) for f in _srcs)
+    _libpath = _cached if _fresh else _compile_from_source()   # a cached build older than the C source is rebuilt
 if _libpath is None:
     raise ImportError("npistat: no compiled back-end and no C sources to build one from.")
 

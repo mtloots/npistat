@@ -219,9 +219,107 @@ static int uniq(double *v, int k) {
     return u;
 }
 
-/* Maximal cliques (innermost intervals [l, r] with no other endpoint strictly inside) and the
-   self-consistency iteration of Turnbull (1976). Infinite right endpoints are replaced by
-   3 max(L) + 1, beyond every finite endpoint. Outputs K cliques in ql, qr, p (capacity n). */
+/* The NPMLE by a damped active-set Newton method. On a support S the masses x maximise the concave
+   phi(x) = sum_i log d_i - n sum_{j in S} x_j, d_i = sum_{j in S} a_ij x_j, whose maximiser has sum x = 1 and
+   satisfies the optimality conditions sum_i a_ij / d_i = n on S. Each Newton step is limited to keep the masses
+   positive: a mass that reaches zero leaves S, and a backtracking search keeps phi increasing. Once settled,
+   the conditions sum_i a_ij / d_i <= n are checked off S and the worst violator joins S. Returns 1 when the
+   conditions hold to machine precision (p then holds the masses), 0 on a singular system or no convergence. */
+static int tb_inC(const double *L, const double *R, const double *ql, const double *qr, int i, int j) { return ql[j] >= L[i] && qr[j] <= R[i]; }
+static double tb_phi(int nn, int ns, const int *S, const double *x, const double *L, const double *R, const double *ql, const double *qr) {
+    double f = 0.0, sx = 0.0;
+    for (int c = 0; c < ns; c++) sx += x[c];
+    for (int i = 0; i < nn; i++) { double s = 0.0; for (int c = 0; c < ns; c++) if (tb_inC(L, R, ql, qr, i, S[c])) s += x[c]; if (!(s > 0.0)) return -INFINITY; f += log(s); }
+    return f - nn * sx;
+}
+static int tb_newton(int nn, int k, const double *L, const double *R, const double *ql, const double *qr, double *p) {
+    int *S = (int *)malloc(sizeof(int) * k), *inS = (int *)calloc(k, sizeof(int)), ns = 0, ok = 0;
+    double *x = (double *)malloc(sizeof(double) * k), *xt = (double *)malloc(sizeof(double) * k), *d = (double *)malloc(sizeof(double) * nn);
+    double *F = (double *)malloc(sizeof(double) * k), *J = (double *)malloc(sizeof(double) * k * k), *D = (double *)malloc(sizeof(double) * k);
+    double pm = 0.0;
+    for (int j = 0; j < k; j++) if (p[j] > pm) pm = p[j];
+    for (int j = 0; j < k; j++) if (p[j] > 1e-10 * pm) { S[ns] = j; x[ns] = p[j]; inS[j] = 1; ns++; }
+    for (int outer = 0; outer < 4 * k + 16 && !ok; outer++) {
+        int settled = 0;
+        for (int it = 0; it < 400; it++) {
+            double xm0 = 0.0; for (int c = 0; c < ns; c++) if (x[c] > xm0) xm0 = x[c];
+            for (int c = 0; c < ns && ns > 1; c++) if (x[c] < 1e-14 * xm0) {     /* a negligible mass leaves the support */
+                inS[S[c]] = 0; for (int q = c; q + 1 < ns; q++) { S[q] = S[q + 1]; x[q] = x[q + 1]; } ns--; c--; }
+            for (int i = 0; i < nn; i++) { double s = 0.0; for (int c = 0; c < ns; c++) if (tb_inC(L, R, ql, qr, i, S[c])) s += x[c]; d[i] = s; if (!(s > 0.0)) goto done; }
+            for (int a = 0; a < ns; a++) {
+                double f = -(double)nn;
+                for (int i = 0; i < nn; i++) if (tb_inC(L, R, ql, qr, i, S[a])) f += 1.0 / d[i];
+                F[a] = f;
+                for (int b = a; b < ns; b++) {
+                    double s = 0.0;
+                    for (int i = 0; i < nn; i++) if (tb_inC(L, R, ql, qr, i, S[a]) && tb_inC(L, R, ql, qr, i, S[b])) s -= 1.0 / (d[i] * d[i]);
+                    J[a * ns + b] = s; J[b * ns + a] = s;
+                }
+            }
+            for (int a = 0; a < ns; a++) D[a] = -F[a];                    /* solve J D = -F, partial pivoting */
+            double scale = 0.0; for (int q = 0; q < ns * ns; q++) if (fabs(J[q]) > scale) scale = fabs(J[q]);
+            for (int c = 0; c < ns; c++) {
+                int piv = c; double big = fabs(J[c * ns + c]);
+                for (int r = c + 1; r < ns; r++) if (fabs(J[r * ns + c]) > big) { big = fabs(J[r * ns + c]); piv = r; }
+                if (!(big > 1e-14 * scale)) goto done;                     /* singular: the masses are not identified */
+                if (piv != c) { for (int q = 0; q < ns; q++) { double t = J[c * ns + q]; J[c * ns + q] = J[piv * ns + q]; J[piv * ns + q] = t; } double t = D[c]; D[c] = D[piv]; D[piv] = t; }
+                for (int r = c + 1; r < ns; r++) { double f = J[r * ns + c] / J[c * ns + c]; if (f != 0.0) { for (int q = c; q < ns; q++) J[r * ns + q] -= f * J[c * ns + q]; D[r] -= f * D[c]; } }
+            }
+            for (int c = ns - 1; c >= 0; c--) { double s = D[c]; for (int q = c + 1; q < ns; q++) s -= J[c * ns + q] * D[q]; D[c] = s / J[c * ns + c]; }
+            double amax = INFINITY; int cz = -1;
+            for (int c = 0; c < ns; c++) if (D[c] < 0.0) { double a = -x[c] / D[c]; if (a < amax) { amax = a; cz = c; } }
+            double f0 = tb_phi(nn, ns, S, x, L, R, ql, qr), slope = 0.0;
+            for (int c = 0; c < ns; c++) slope += F[c] * D[c];
+            if (amax <= 1.0 && ns > 1) {                                  /* a mass reaches zero within the full step */
+                for (int c = 0; c < ns; c++) xt[c] = x[c] + amax * D[c];
+                xt[cz] = 0.0;
+                if (tb_phi(nn, ns, S, xt, L, R, ql, qr) >= f0 - 1e-12 * fabs(f0)) {
+                    inS[S[cz]] = 0; for (int c = cz; c + 1 < ns; c++) { S[c] = S[c + 1]; xt[c] = xt[c + 1]; } ns--;
+                    for (int c = 0; c < ns; c++) x[c] = xt[c] > 0.0 ? xt[c] : 0.0;
+                    continue;
+                }
+            }
+            double fmax = 0.0; for (int c = 0; c < ns; c++) if (fabs(F[c]) > fmax) fmax = fabs(F[c]);
+            double a = amax <= 1.0 ? 0.5 * amax : 1.0;
+            if (!(amax > 1.0 && fmax < 1e-6 * nn)) {                       /* far from the optimum: backtrack for ascent */
+                for (;;) {
+                    for (int c = 0; c < ns; c++) xt[c] = x[c] + a * D[c];
+                    double f1 = tb_phi(nn, ns, S, xt, L, R, ql, qr);
+                    if (f1 >= f0 + 1e-4 * a * slope || a < 1e-12) break;
+                    a *= 0.5;
+                }
+                if (a < 1e-12) break;                                     /* no ascent: leave the decision to the residual */
+            } else for (int c = 0; c < ns; c++) xt[c] = x[c] + D[c];      /* near it: full Newton steps, quadratic convergence */
+            double step = 0.0, xm = 0.0;
+            for (int c = 0; c < ns; c++) { if (fabs(a * D[c]) > step) step = fabs(a * D[c]); x[c] = xt[c]; if (x[c] > xm) xm = x[c]; }
+            if (a == 1.0 && (step <= 1e-15 * xm || fmax <= 1e-13 * nn)) { settled = 1; break; }
+        }
+        for (int i = 0; i < nn; i++) { double s = 0.0; for (int c = 0; c < ns; c++) if (tb_inC(L, R, ql, qr, i, S[c])) s += x[c]; d[i] = s; if (!(s > 0.0)) goto done; }
+        double res = 0.0;                                                 /* the equations on the support must hold */
+        for (int c = 0; c < ns; c++) { double g = 0.0; for (int i = 0; i < nn; i++) if (tb_inC(L, R, ql, qr, i, S[c])) g += 1.0 / d[i]; if (fabs(g - nn) > res) res = fabs(g - nn); }
+        if (!settled && res > 1e-10 * nn) goto done;
+        int add = -1; double gv = (double)nn * (1.0 + 1e-12);          /* conditions off the support */
+        for (int j = 0; j < k; j++) if (!inS[j]) {
+            double g = 0.0; for (int i = 0; i < nn; i++) if (tb_inC(L, R, ql, qr, i, j)) g += 1.0 / d[i];
+            if (g > gv) { gv = g; add = j; }
+        }
+        if (add < 0) { ok = 1; break; }
+        double xmin = 1.0; for (int c = 0; c < ns; c++) if (x[c] < xmin) xmin = x[c];
+        S[ns] = add; x[ns] = 1e-3 * xmin; inS[add] = 1; ns++;
+    }
+done:
+    if (ok) { double tot = 0.0; for (int c = 0; c < ns; c++) tot += x[c]; for (int j = 0; j < k; j++) p[j] = 0.0; for (int c = 0; c < ns; c++) p[S[c]] = x[c] / tot; }
+    free(S); free(inS); free(x); free(xt); free(d); free(F); free(J); free(D);
+    return ok;
+}
+
+/* Maximal cliques (innermost intervals [l, r] with no other endpoint strictly inside) and the NPMLE of
+   Turnbull (1976). The self-consistency iteration from the uniform start locates the support, and
+   Newton's method on the optimality conditions (tb_newton) then fixes the masses to machine precision;
+   the iteration alone can stop well short of the optimum, notably on current-status data. When the
+   masses are not identified (singular Newton system) the iteration runs on to maxit and tol as before.
+   Infinite right endpoints are replaced by 3 max(L) + 1, beyond every finite endpoint. Outputs K
+   cliques in ql, qr, p (capacity n). */
 void C_npi_turnbull(const int *n, const double *L, const double *Rin, const int *maxit,
                     const double *tol, int *K, double *ql, double *qr, double *p) {
     int nn = *n;
@@ -248,21 +346,35 @@ void C_npi_turnbull(const int *n, const double *L, const double *Rin, const int 
     if (k > 0) {
         double *pn = (double *)malloc(sizeof(double) * k), *dd = (double *)malloc(sizeof(double) * nn);
         for (int j = 0; j < k; j++) p[j] = 1.0 / k;
-        for (int it = 0; it < *maxit; it++) {
-            for (int i = 0; i < nn; i++) {
-                double s = 0.0;
-                for (int j = 0; j < k; j++) if (ql[j] >= L[i] && qr[j] <= R[i]) s += p[j];
-                dd[i] = s > 0.0 ? s : 1e-300;
+        int phase = 0, cap = *maxit < 2000 ? *maxit : 2000;
+        for (;;) {
+            for (int it = 0; it < cap; it++) {
+                for (int i = 0; i < nn; i++) {
+                    double s = 0.0;
+                    for (int j = 0; j < k; j++) if (ql[j] >= L[i] && qr[j] <= R[i]) s += p[j];
+                    dd[i] = s > 0.0 ? s : 1e-300;
+                }
+                double tot = 0.0;
+                for (int j = 0; j < k; j++) {
+                    double s = 0.0;
+                    for (int i = 0; i < nn; i++) if (ql[j] >= L[i] && qr[j] <= R[i]) s += 1.0 / dd[i];
+                    pn[j] = p[j] * s / nn; tot += pn[j];
+                }
+                double dmax = 0.0;
+                for (int j = 0; j < k; j++) { pn[j] /= tot; double e = fabs(pn[j] - p[j]); if (e > dmax) dmax = e; p[j] = pn[j]; }
+                if (dmax < (phase ? *tol : 1e-10)) break;
             }
-            double tot = 0.0;
-            for (int j = 0; j < k; j++) {
-                double s = 0.0;
-                for (int i = 0; i < nn; i++) if (ql[j] >= L[i] && qr[j] <= R[i]) s += 1.0 / dd[i];
-                pn[j] = p[j] * s / nn; tot += pn[j];
+            if (phase == 0 && tb_newton(nn, k, L, R, ql, qr, p)) {
+                /* one self-consistency step at the optimum: no loss of precision, and the masses then satisfy the
+                   update's identities exactly (for instance mass above t >= #{L_i > t} / n), as every iterate does */
+                for (int i = 0; i < nn; i++) { double s = 0.0; for (int j = 0; j < k; j++) if (ql[j] >= L[i] && qr[j] <= R[i]) s += p[j]; dd[i] = s > 0.0 ? s : 1e-300; }
+                double tot = 0.0;
+                for (int j = 0; j < k; j++) { double s = 0.0; for (int i = 0; i < nn; i++) if (ql[j] >= L[i] && qr[j] <= R[i]) s += 1.0 / dd[i]; pn[j] = p[j] * s / nn; tot += pn[j]; }
+                for (int j = 0; j < k; j++) p[j] = pn[j] / tot;
+                break;
             }
-            double dmax = 0.0;
-            for (int j = 0; j < k; j++) { pn[j] /= tot; double e = fabs(pn[j] - p[j]); if (e > dmax) dmax = e; p[j] = pn[j]; }
-            if (dmax < *tol) break;
+            if (phase == 1) break;
+            phase = 1; cap = *maxit;                                  /* not identified: the plain iteration, as before */
         }
         free(pn); free(dd);
     }
