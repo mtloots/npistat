@@ -1,14 +1,32 @@
 ## npistat: R front to the shared C back-end. Every computation is in src/npistat.c; this file
 ## only validates input, calls .C and shapes the output.
 
-npi_regions <- function(L, R) {
+npi_regions <- function(L, R, origin = FALSE) {
   L <- as.double(L); R <- as.double(R)
   if (length(L) != length(R)) stop("L and R must have the same length")
   if (any(is.na(L)) || any(is.na(R))) stop("L and R must not contain NA")
   if (any(R < L)) stop("every region needs L <= R")
   if (any(!is.finite(L))) stop("L must be finite; code a left-censored observation by L = 0")
+  if (origin && any(L < 0)) stop("the scale starts at the origin 0: endpoints must not be negative")
   list(L = L, R = R, ex = as.integer(L == R), n = length(L))
 }
+
+## Step 1 in C: the regions with ties broken. eps = 0 lets the C code choose the increment from the data.
+npi_untie <- function(g, closedR, eps) {
+  .C("C_npi_untie", g$n, g$L, g$R, g$ex, as.double(eps), as.integer(closedR), 1e-9,
+     L2 = double(g$n), R2 = double(g$n), NAOK = TRUE, PACKAGE = "npistat")
+}
+
+## The distinct endpoint values of the data, with the origin: one representative for each set of values that the C
+## code takes as tied (closer than 1e-9 times the largest finite endpoint). npi_snap returns each end of an interval
+## computed from the regions of step 1 to the data value it stands for.
+npi_values <- function(g) {
+  v <- sort(unique(c(0, g$L, g$R[is.finite(g$R)]))); sc <- max(abs(v)); thr <- 1e-9 * (if (sc > 0) sc else 1)
+  keep <- logical(length(v)); cur <- -Inf
+  for (i in seq_along(v)) if (v[i] - cur > thr) { keep[i] <- TRUE; cur <- v[i] }
+  v[keep]
+}
+npi_snap <- function(x, v) { f <- is.finite(x); x[f] <- v[pmax(findInterval(x[f], v), 1L)]; x }
 
 #' Bounds for events among future Bernoulli observations
 #'
@@ -75,15 +93,29 @@ npi_future <- function(L, R, t, m, r = 1, side = c("above", "below")) {
 #' The M-functions of the sharing specification \eqn{M_S} for observations known only to lie in
 #' regions \eqn{[L_i, R_i]}: a censored observation shares its predictive mass equally among the
 #' observations whose region lies inside its own, itself included, in decreasing order of the size
-#' of that set. Under right censoring these are the \eqn{\text{rc-}A_{(n)}} M-functions of Coolen
-#' and Yan (2004). Ties are broken by Hill's \eqn{H_{(n)}} convention.
+#' of that set. The mass an observation then holds starts at the left end of its region and ends at
+#' the right end, one further unit starts at the origin and one ends at infinity, and the left and
+#' right ends are paired in increasing order. On exact data these are the intervals of
+#' \eqn{A_{(n)}}, and under right censoring the \eqn{\text{rc-}A_{(n)}} M-functions of Coolen
+#' and Yan (2004).
 #'
-#' @param L,R region endpoints; \code{R = Inf} for right censoring, \code{L == R} for an exact value.
-#' @param closedR logical; extend the right endpoint of a censored region past an exact value tied
-#'   with it (the default), or leave it open.
-#' @param eps tie-breaking increment.
-#' @return A data frame of intervals \code{from}, \code{to} and their \code{mass}, merged where an
-#'   interval occurs twice; the masses sum to one.
+#' Ties are broken first, by Hill's \eqn{H_{(n)}} convention in the form of Coolen and Yan (2004,
+#' Section 7): a censored region is read as half-open, \eqn{(L_i, R_i]}, so that an exact value tied
+#' with its right end lies inside it, an exact value tied with its left end lies outside and below
+#' it, and a region that ends at a value lies below a region that starts there; among tied left
+#' ends, exact values come first and a containing region before the region it contains. Every
+#' routine of the package that takes regions uses this convention.
+#'
+#' @param L,R region endpoints, not negative; \code{L = 0} for left censoring, \code{R = Inf} for
+#'   right censoring, \code{L == R} for an exact value.
+#' @param closedR logical; an exact value tied with the right end of a censored region lies inside
+#'   the region (the default) or outside it.
+#' @param eps tie-breaking increment. The default, 0, chooses it from the data, small enough never
+#'   to change the order of distinct values whatever the unit of measurement; a positive value is
+#'   used as given.
+#' @return A data frame of intervals \code{from}, \code{to} and their \code{mass}, with ends at
+#'   data values, merged where an interval occurs twice; the masses sum to one. An interval with
+#'   \code{from == to} is a point mass at a tied value.
 #' @references Coolen, F. P. A. and Yan, K. J. (2004). Nonparametric predictive inference with
 #'   right-censored data. Journal of Statistical Planning and Inference 126, 25--54.
 #' @examples
@@ -91,17 +123,17 @@ npi_future <- function(L, R, t, m, r = 1, side = c("above", "below")) {
 #' M <- npi_mfun(tm, ifelse(ev == 1, tm, Inf))
 #' M$mass * 35
 #' @export
-npi_mfun <- function(L, R, closedR = TRUE, eps = 1e-7) {
-  g <- npi_regions(L, R)
-  u <- .C("C_npi_untie", g$n, g$L, g$R, g$ex, as.double(eps), as.integer(closedR), 1e-9,
-          L2 = double(g$n), R2 = double(g$n), NAOK = TRUE, PACKAGE = "npistat")
+npi_mfun <- function(L, R, closedR = TRUE, eps = 0) {
+  g <- npi_regions(L, R, origin = TRUE)
+  u <- npi_untie(g, closedR, eps)
   own <- .C("C_npi_share", g$n, u$L2, u$R2, g$ex, own = double(g$n + 1), NAOK = TRUE, PACKAGE = "npistat")$own
-  p <- .C("C_npi_place", g$n, u$L2, u$R2, g$ex, own, lo = double(g$n + 1), hi = double(g$n + 1),
-          m = double(g$n + 1), NAOK = TRUE, PACKAGE = "npistat")
-  d <- data.frame(from = p$lo, to = p$hi, mass = p$m)
-  d$from <- round(d$from, 6); d$to <- ifelse(is.finite(d$to), round(d$to, 6), Inf)
+  p <- .C("C_npi_place", g$n, u$L2, u$R2, g$ex, own, K = integer(1), lo = double(2 * g$n + 1),
+          hi = double(2 * g$n + 1), m = double(2 * g$n + 1), NAOK = TRUE, PACKAGE = "npistat")
+  k <- seq_len(p$K); v <- npi_values(g)
+  d <- data.frame(from = npi_snap(p$lo[k], v), to = npi_snap(p$hi[k], v), mass = p$m[k])
   d <- stats::aggregate(mass ~ from + to, d, sum)
-  d[order(d$from, d$to), , drop = FALSE]
+  d <- d[order(d$from, d$to), , drop = FALSE]; rownames(d) <- NULL
+  d
 }
 
 #' The right-censored M-functions in closed form
@@ -127,36 +159,53 @@ npi_rc <- function(time, status) {
 #' The Turnbull estimator
 #'
 #' The nonparametric maximum likelihood estimator for censored data (Turnbull 1976): its maximal
-#' cliques and their masses, by the self-consistency iteration.
+#' cliques and their masses, by the self-consistency iteration followed by Newton's method on the
+#' optimality conditions.
 #'
-#' @param L,R region endpoints; \code{R = Inf} for right censoring.
+#' By default ties are broken first, as in \code{\link{npi_mfun}}: a censored region is read as
+#' half-open, \eqn{(L_i, R_i]}, which is the usual reading of inspection data and makes the
+#' estimator the Kaplan-Meier estimator under right censoring, an event preceding a censoring tied
+#' with it. With \code{untie = FALSE} the regions are taken as closed sets exactly as given.
+#'
+#' @param L,R region endpoints, not negative; \code{R = Inf} for right censoring.
 #' @param maxit,tol iteration limit and convergence tolerance.
-#' @return A data frame of cliques \code{left}, \code{right} and \code{mass}.
+#' @param untie logical; break ties first (the default) or take the regions as closed sets.
+#' @param closedR,eps tie convention, as in \code{\link{npi_mfun}}; used when \code{untie} is true.
+#' @return A data frame of cliques \code{left}, \code{right} and \code{mass}, with ends at data
+#'   values; a clique that is unbounded above, which arises only from right-censored observations,
+#'   has \code{right = Inf}.
 #' @references Turnbull, B. W. (1976). The empirical distribution function with arbitrarily
 #'   grouped, censored and truncated data. JRSS B 38, 290--295.
 #' @examples
 #' npi_turnbull(c(3.5, 3.4, 4.7, 6.9, 5.6, 2.4), c(6.5, 6.8, 5.9, 6.9, 7.9, 6.4))
 #' @export
-npi_turnbull <- function(L, R, maxit = 20000L, tol = 1e-13) {
-  g <- npi_regions(L, R)
-  z <- .C("C_npi_turnbull", g$n, g$L, g$R, as.integer(maxit), as.double(tol), K = integer(1),
+npi_turnbull <- function(L, R, maxit = 20000L, tol = 1e-13, untie = TRUE, closedR = TRUE, eps = 0) {
+  g <- npi_regions(L, R, origin = TRUE)
+  LL <- g$L; RR <- g$R
+  if (untie) { u <- npi_untie(g, closedR, eps); LL <- u$L2; RR <- u$R2 }
+  z <- .C("C_npi_turnbull", g$n, LL, RR, as.integer(maxit), as.double(tol), K = integer(1),
           ql = double(g$n), qr = double(g$n), p = double(g$n), NAOK = TRUE, PACKAGE = "npistat")
   k <- seq_len(z$K)
-  data.frame(left = z$ql[k], right = z$qr[k], mass = z$p[k])
+  d <- data.frame(left = z$ql[k], right = z$qr[k], mass = z$p[k])
+  if (untie && nrow(d)) { v <- npi_values(g); d$left <- npi_snap(d$left, v); d$right <- npi_snap(d$right, v)
+    d <- stats::aggregate(mass ~ left + right, d, sum); d <- d[order(d$left, d$right), , drop = FALSE]; rownames(d) <- NULL }
+  d
 }
 
 #' Survival bounds for the next observation from censored data
 #'
 #' Lower and upper survival probabilities \eqn{P(X_{n+1} > t)} from observations known only to lie
 #' in regions \eqn{[L_i, R_i]}, by the construction of Loots: the union of the sharing
-#' specification \eqn{M_S} and the specification \eqn{M_P} anchored to the Turnbull estimator,
-#' clipped to the completion bound \eqn{M_C}. On exact data the bounds are those of \eqn{A_{(n)}},
+#' specification \eqn{M_S} and the specification \eqn{M_P} anchored to the Turnbull estimator.
+#' Both lie inside the completion bound \eqn{M_C}. On exact data the bounds are those of \eqn{A_{(n)}},
 #' on right-censored data those of \eqn{\text{rc-}A_{(n)}}, and they contain the Turnbull estimator
 #' under every censoring pattern. Evaluate away from the data values.
 #'
-#' @param L,R region endpoints; \code{R = Inf} for right censoring, \code{L == R} for an exact value.
+#' @param L,R region endpoints, not negative; \code{L = 0} for left censoring, \code{R = Inf} for
+#'   right censoring, \code{L == R} for an exact value.
 #' @param t vector of evaluation points.
-#' @param closedR,eps tie convention, as in \code{\link{npi_mfun}}.
+#' @param closedR,eps tie convention, as in \code{\link{npi_mfun}}; the Turnbull estimator inside
+#'   the construction is computed from the same regions, with ties broken.
 #' @param members logical; also return the bounds of the three members and the Turnbull set.
 #' @return A data frame with \code{t}, \code{lower}, \code{upper} and, if \code{members}, the
 #'   columns \code{S.lower}, \code{S.upper}, \code{P.lower}, \code{P.upper}, \code{C.lower},
@@ -165,8 +214,8 @@ npi_turnbull <- function(L, R, maxit = 20000L, tol = 1e-13) {
 #' L <- c(3.5, 3.4, 4.7, 6.9, 5.6, 2.4); R <- c(6.5, 6.8, 5.9, 6.9, 7.9, 6.4)
 #' npi_survival(L, R, t = c(5.75, 7.5), members = TRUE)
 #' @export
-npi_survival <- function(L, R, t, closedR = TRUE, eps = 1e-7, members = FALSE) {
-  g <- npi_regions(L, R); t <- as.double(t); nt <- length(t)
+npi_survival <- function(L, R, t, closedR = TRUE, eps = 0, members = FALSE) {
+  g <- npi_regions(L, R, origin = TRUE); t <- as.double(t); nt <- length(t)
   z <- .C("C_npi_bounds", g$n, g$L, g$R, g$ex, as.double(eps), as.integer(closedR), nt, t,
           lo = double(nt), up = double(nt), slo = double(nt), sup = double(nt), plo = double(nt),
           pup = double(nt), clo = double(nt), cup = double(nt), tlo = double(nt), tup = double(nt),

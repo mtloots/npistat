@@ -4,26 +4,41 @@
 \alias{npi_mfun}
 \title{M-functions of the sharing assumption}
 \usage{
-npi_mfun(L, R, closedR = TRUE, eps = 1e-07)
+npi_mfun(L, R, closedR = TRUE, eps = 0)
 }
 \arguments{
-\item{L, R}{region endpoints; \code{R = Inf} for right censoring, \code{L == R} for an exact value.}
+\item{L, R}{region endpoints, not negative; \code{L = 0} for left censoring, \code{R = Inf} for
+right censoring, \code{L == R} for an exact value.}
 
-\item{closedR}{logical; extend the right endpoint of a censored region past an exact value tied
-with it (the default), or leave it open.}
+\item{closedR}{logical; an exact value tied with the right end of a censored region lies inside
+the region (the default) or outside it.}
 
-\item{eps}{tie-breaking increment.}
+\item{eps}{tie-breaking increment. The default, 0, chooses it from the data, small enough never
+to change the order of distinct values whatever the unit of measurement; a positive value is
+used as given.}
 }
 \value{
-A data frame of intervals \code{from}, \code{to} and their \code{mass}, merged where an
-  interval occurs twice; the masses sum to one.
+A data frame of intervals \code{from}, \code{to} and their \code{mass}, with ends at
+  data values, merged where an interval occurs twice; the masses sum to one. An interval with
+  \code{from == to} is a point mass at a tied value.
 }
 \description{
 The M-functions of the sharing specification \eqn{M_S} for observations known only to lie in
 regions \eqn{[L_i, R_i]}: a censored observation shares its predictive mass equally among the
 observations whose region lies inside its own, itself included, in decreasing order of the size
-of that set. Under right censoring these are the \eqn{\text{rc-}A_{(n)}} M-functions of Coolen
-and Yan (2004). Ties are broken by Hill's \eqn{H_{(n)}} convention.
+of that set. The mass an observation then holds starts at the left end of its region and ends at
+the right end, one further unit starts at the origin and one ends at infinity, and the left and
+right ends are paired in increasing order. On exact data these are the intervals of
+\eqn{A_{(n)}}, and under right censoring the \eqn{\text{rc-}A_{(n)}} M-functions of Coolen
+and Yan (2004).
+}
+\details{
+Ties are broken first, by Hill's \eqn{H_{(n)}} convention in the form of Coolen and Yan (2004,
+Section 7): a censored region is read as half-open, \eqn{(L_i, R_i]}, so that an exact value tied
+with its right end lies inside it, an exact value tied with its left end lies outside and below
+it, and a region that ends at a value lies below a region that starts there; among tied left
+ends, exact values come first and a containing region before the region it contains. Every
+routine of the package that takes regions uses this convention.
 }
 \examples{
 tm <- c(3, 4, 6, 7, 8, 9); ev <- c(1, 0, 1, 0, 1, 1)

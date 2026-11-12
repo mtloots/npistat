@@ -4,14 +4,16 @@
 \alias{npi_survival}
 \title{Survival bounds for the next observation from censored data}
 \usage{
-npi_survival(L, R, t, closedR = TRUE, eps = 1e-07, members = FALSE)
+npi_survival(L, R, t, closedR = TRUE, eps = 0, members = FALSE)
 }
 \arguments{
-\item{L, R}{region endpoints; \code{R = Inf} for right censoring, \code{L == R} for an exact value.}
+\item{L, R}{region endpoints, not negative; \code{L = 0} for left censoring, \code{R = Inf} for
+right censoring, \code{L == R} for an exact value.}
 
 \item{t}{vector of evaluation points.}
 
-\item{closedR, eps}{tie convention, as in \code{\link{npi_mfun}}.}
+\item{closedR, eps}{tie convention, as in \code{\link{npi_mfun}}; the Turnbull estimator inside
+the construction is computed from the same regions, with ties broken.}
 
 \item{members}{logical; also return the bounds of the three members and the Turnbull set.}
 }
@@ -23,8 +25,8 @@ A data frame with \code{t}, \code{lower}, \code{upper} and, if \code{members}, t
 \description{
 Lower and upper survival probabilities \eqn{P(X_{n+1} > t)} from observations known only to lie
 in regions \eqn{[L_i, R_i]}, by the construction of Loots: the union of the sharing
-specification \eqn{M_S} and the specification \eqn{M_P} anchored to the Turnbull estimator,
-clipped to the completion bound \eqn{M_C}. On exact data the bounds are those of \eqn{A_{(n)}},
+specification \eqn{M_S} and the specification \eqn{M_P} anchored to the Turnbull estimator.
+Both lie inside the completion bound \eqn{M_C}. On exact data the bounds are those of \eqn{A_{(n)}},
 on right-censored data those of \eqn{\text{rc-}A_{(n)}}, and they contain the Turnbull estimator
 under every censoring pattern. Evaluate away from the data values.
 }

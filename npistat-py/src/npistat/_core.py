@@ -7,6 +7,7 @@ LOADING has two paths, as in the other packages in this programme. An INSTALLED 
 library that pip built at install time, so no compiler is needed here. A SOURCE CHECKOUT has the
 .c file but no library, so it is compiled on demand into a writable cache directory.
 """
+import bisect as _bisect
 import ctypes as _ct
 import glob as _glob
 import os as _os
@@ -73,7 +74,7 @@ for _f, _sig in (
     ("C_npi_mfuture", [_ip, _dp, _dp, _ip, _ip, _ip, _ip, _dp, _dp, _dp]),
     ("C_npi_untie", [_ip, _dp, _dp, _ip, _dp, _ip, _dp, _dp, _dp]),
     ("C_npi_share", [_ip, _dp, _dp, _ip, _dp]),
-    ("C_npi_place", [_ip, _dp, _dp, _ip, _dp, _dp, _dp, _dp]),
+    ("C_npi_place", [_ip, _dp, _dp, _ip, _dp, _ip, _dp, _dp, _dp]),
     ("C_npi_mbounds", [_ip, _dp, _dp, _dp, _ip, _ip, _dp, _dp, _dp]),
     ("C_npi_turnbull", [_ip, _dp, _dp, _ip, _dp, _ip, _dp, _dp, _dp]),
     ("C_npi_bounds", [_ip, _dp, _dp, _ip, _dp, _ip, _ip, _dp] + [_dp] * 10),
@@ -112,7 +113,7 @@ def _vec(x):
     return [float(v) for v in (x if hasattr(x, "__len__") else [x])]
 
 
-def _regions(L, R):
+def _regions(L, R, origin=False):
     L, R = _vec(L), _vec(R)
     if len(L) != len(R):
         raise ValueError("L and R must have the same length")
@@ -122,7 +123,38 @@ def _regions(L, R):
         raise ValueError("every region needs L <= R")
     if any(abs(l) == _INF for l in L):
         raise ValueError("L must be finite; code a left-censored observation by L = 0")
+    if origin and any(l < 0 for l in L):
+        raise ValueError("the scale starts at the origin 0: endpoints must not be negative")
     return L, R, [int(l == r) for l, r in zip(L, R)], len(L)
+
+
+def _untie(L, R, ex, n, closedR, eps):
+    """Step 1 in C: the regions with ties broken; eps = 0 lets the C code choose the increment from the data."""
+    L2, R2 = _z(n), _z(n)
+    _lib.C_npi_untie(_one(n), _d(L), _d(R), _i(ex), _oned(eps), _one(bool(closedR)), _oned(1e-9), L2, R2)
+    return L2, R2
+
+
+def _values(L, R):
+    """The distinct endpoint values of the data, with the origin: one representative for each set of values the C
+    code takes as tied (closer than 1e-9 times the largest finite endpoint)."""
+    v = sorted(set([0.0] + list(L) + [r for r in R if r != _INF]))
+    sc = max(abs(x) for x in v)
+    thr = 1e-9 * (sc if sc > 0 else 1.0)
+    out, cur = [], -_INF
+    for x in v:
+        if x - cur > thr:
+            out.append(x)
+            cur = x
+    return out
+
+
+def _snap(x, v):
+    """Return the end of an interval computed from the regions of step 1 to the data value it stands for."""
+    if x == _INF:
+        return x
+    k = _bisect.bisect_right(v, x) - 1
+    return v[max(k, 0)]
 
 
 def npi_bernoulli(n, k, m, r=1):
@@ -152,20 +184,28 @@ def npi_future(L, R, t, m, r=1, side="above"):
     return [(ts[j], lo[j], up[j]) for j in range(len(ts))]
 
 
-def npi_mfun(L, R, closedR=True, eps=1e-7):
-    """M-functions of the sharing specification M_S for regions [L_i, R_i] (R_i = inf for right
-    censoring, L_i == R_i for an exact value). Returns a list of (from, to, mass), merged where an
-    interval occurs twice; under right censoring these are the rc-A(n) values of Coolen and Yan."""
-    L, R, ex, n = _regions(L, R)
-    L2, R2 = _z(n), _z(n)
-    _lib.C_npi_untie(_one(n), _d(L), _d(R), _i(ex), _oned(eps), _one(bool(closedR)), _oned(1e-9), L2, R2)
+def npi_mfun(L, R, closedR=True, eps=0.0):
+    """M-functions of the sharing specification M_S for regions with endpoints L_i <= R_i, not negative (L_i = 0 for
+    left censoring, R_i = inf for right censoring, L_i == R_i for an exact value). Returns a list of (from, to, mass)
+    with ends at data values, merged where an interval occurs twice; from == to is a point mass at a tied value. Each mass starts at the left end of its region and ends at the right end, one unit
+    starts at the origin and one ends at infinity, and left and right ends are paired in increasing order; on exact
+    data these are the intervals of A(n), under right censoring the rc-A(n) values of Coolen and Yan.
+
+    Ties are broken first: a censored region is read as half-open, (L_i, R_i], so an exact value tied with its right
+    end lies inside it (outside if closedR is false), one tied with its left end lies outside and below it, and a
+    region that ends at a value lies below a region that starts there. eps is the tie-breaking increment; 0, the
+    default, chooses it from the data, small enough never to change the order of distinct values."""
+    L, R, ex, n = _regions(L, R, origin=True)
+    L2, R2 = _untie(L, R, ex, n, closedR, eps)
     own = _z(n + 1)
     _lib.C_npi_share(_one(n), L2, R2, _i(ex), own)
-    lo, hi, mm = _z(n + 1), _z(n + 1), _z(n + 1)
-    _lib.C_npi_place(_one(n), L2, R2, _i(ex), own, lo, hi, mm)
+    lo, hi, mm = _z(2 * n + 1), _z(2 * n + 1), _z(2 * n + 1)
+    K = _ct.c_int(0)
+    _lib.C_npi_place(_one(n), L2, R2, _i(ex), own, _ct.byref(K), lo, hi, mm)
     acc = {}
-    for j in range(n + 1):
-        key = (round(lo[j], 6), round(hi[j], 6) if hi[j] != _INF else _INF)
+    v = _values(L, R)
+    for j in range(K.value):
+        key = (_snap(lo[j], v), _snap(hi[j], v))
         acc[key] = acc.get(key, 0.0) + mm[j]
     return [(a, b, acc[(a, b)]) for (a, b) in sorted(acc)]
 
@@ -184,22 +224,37 @@ def npi_rc(time, status):
     return [(lo[j], hi[j], mm[j]) for j in range(n + 1)]
 
 
-def npi_turnbull(L, R, maxit=20000, tol=1e-13):
-    """The Turnbull estimator: maximal cliques and masses by self-consistency. Returns a list of
-    (left, right, mass); an infinite right endpoint is reported as 3 max(L) + 1."""
-    L, R, ex, n = _regions(L, R)
+def npi_turnbull(L, R, maxit=20000, tol=1e-13, untie=True, closedR=True, eps=0.0):
+    """The Turnbull estimator: maximal cliques and masses by self-consistency and Newton's method. Returns a list of
+    (left, right, mass) with ends at data values; a clique that is unbounded above has right = inf. By default ties
+    are broken first, as in npi_mfun, a censored region being read as half-open, (L_i, R_i]; under right censoring
+    the estimator is then the Kaplan-Meier estimator, an event preceding a censoring tied with it. With untie false
+    the regions are taken as closed sets exactly as given."""
+    L, R, ex, n = _regions(L, R, origin=True)
     K = _ct.c_int(0)
     ql, qr, p = _z(n), _z(n), _z(n)
-    _lib.C_npi_turnbull(_one(n), _d(L), _d(R), _one(maxit), _oned(tol), _ct.byref(K), ql, qr, p)
-    return [(ql[j], qr[j], p[j]) for j in range(K.value)]
+    if untie:
+        L2, R2 = _untie(L, R, ex, n, closedR, eps)
+    else:
+        L2, R2 = _d(L), _d(R)
+    _lib.C_npi_turnbull(_one(n), L2, R2, _one(maxit), _oned(tol), _ct.byref(K), ql, qr, p)
+    if not untie:
+        return [(ql[j], qr[j], p[j]) for j in range(K.value)]
+    acc = {}
+    v = _values(L, R)
+    for j in range(K.value):
+        key = (_snap(ql[j], v), _snap(qr[j], v))
+        acc[key] = acc.get(key, 0.0) + p[j]
+    return [(a, b, acc[(a, b)]) for (a, b) in sorted(acc)]
 
 
-def npi_survival(L, R, t, closedR=True, eps=1e-7, members=False):
+def npi_survival(L, R, t, closedR=True, eps=0.0, members=False):
     """Lower and upper survival probabilities P(X_{n+1} > t) of the construction: the union of the
-    sharing and anchored specifications, clipped to the completion bound. Evaluate away from the
+    sharing and anchored specifications, both of which lie inside the completion bound. Every member, the Turnbull
+    estimator included, is computed from the regions with ties broken as in npi_mfun. Evaluate away from the
     data values. Returns a list of dicts with t, lower, upper and, if members, the bounds of
     M_S, M_P, M_C and the Turnbull set."""
-    L, R, ex, n = _regions(L, R)
+    L, R, ex, n = _regions(L, R, origin=True)
     ts = _vec(t)
     nt = len(ts)
     out = [_z(nt) for _ in range(10)]

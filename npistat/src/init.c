@@ -10,7 +10,7 @@ extern void C_npi_untie(const int*, const double*, const double*, const int*, co
                         const int*, const double*, double*, double*);
 extern void C_npi_share(const int*, const double*, const double*, const int*, double*);
 extern void C_npi_place(const int*, const double*, const double*, const int*, const double*,
-                        double*, double*, double*);
+                        int*, double*, double*, double*);
 extern void C_npi_mbounds(const int*, const double*, const double*, const double*, const int*,
                           const int*, const double*, double*, double*);
 extern void C_npi_turnbull(const int*, const double*, const double*, const int*, const double*,
@@ -27,7 +27,7 @@ static const R_CMethodDef CEntries[] = {
     {"C_npi_mfuture",  (DL_FUNC) &C_npi_mfuture,  10},
     {"C_npi_untie",    (DL_FUNC) &C_npi_untie,     9},
     {"C_npi_share",    (DL_FUNC) &C_npi_share,     5},
-    {"C_npi_place",    (DL_FUNC) &C_npi_place,     8},
+    {"C_npi_place",    (DL_FUNC) &C_npi_place,     9},
     {"C_npi_mbounds",  (DL_FUNC) &C_npi_mbounds,   9},
     {"C_npi_turnbull", (DL_FUNC) &C_npi_turnbull,  9},
     {"C_npi_bounds",   (DL_FUNC) &C_npi_bounds,   18},

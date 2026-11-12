@@ -1,7 +1,7 @@
 Package: npistat
 Type: Package
 Title: Nonparametric Predictive Inference for Censored and Bernoulli Data
-Version: 0.1.1
+Version: 0.2.0
 Authors@R: person("M. Theodor", "Loots", role = c("aut", "cre"), email = "theo.loots@gmail.com",
                     comment = c(ORCID = "0000-0001-7722-3913"))
 Description: Lower and upper probabilities for future observations under Hill's assumption A(n)

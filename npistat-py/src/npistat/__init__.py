@@ -11,4 +11,4 @@ from ._core import (npi_bernoulli, npi_future, npi_mfun, npi_rc, npi_turnbull, n
                     npi_twolevel, npi_rates)
 __all__ = ["npi_bernoulli", "npi_future", "npi_mfun", "npi_rc", "npi_turnbull", "npi_survival",
            "npi_twolevel", "npi_rates"]
-__version__ = "0.1.0"
+__version__ = "0.2.0"

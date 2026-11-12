@@ -7,12 +7,14 @@
  *
  * 1. Censored data (Loots, "Nonparametric predictive inference for interval-censored data:
  *    M-functions anchored to the self-consistent estimator"). Each observation is known only to
- *    lie in a closed region [L_i, R_i]; R_i = +infinity for right censoring, L_i = R_i for an exact
- *    observation. Three M-function specifications:
+ *    lie in a region with endpoints L_i <= R_i; R_i = +infinity for right censoring, L_i = R_i for
+ *    an exact observation. Ties are broken first (C_npi_untie), a censored region being read as
+ *    half-open, (L_i, R_i], and every specification is computed from the regions so obtained:
  *      M_S  the sharing assumption ic-A(n), which is Coolen and Yan's rc-A(n) under right censoring;
  *      M_P  n/(n+1) of each Turnbull clique mass on its clique, 1/(n+1) on the whole support;
  *      M_C  the completion bound, the envelope of A(n) over all completions of the data.
- *    The construction's survival bounds are min(S_lo, P_lo) and min(max(S_up, P_up), C_up).
+ *    The construction's survival bounds are min(S_lo, P_lo) and max(S_up, P_up); both members lie
+ *    inside M_C.
  *
  * 2. Bernoulli data and m future observations (Coolen 1998; Coolen and Coolen-Schrijner 2005),
  *    by counting allocations of m future observations to the n+1 intervals of A(n), and the same
@@ -112,26 +114,61 @@ static int cmp_untie(const void *a, const void *b) {
     if (sR_[i] != sR_[j]) return sR_[i] > sR_[j] ? -1 : 1; /* containing region first */
     return i < j ? -1 : (i > j);
 }
+static int cmp_dbl(const void *a, const void *b);
+/* the largest of the m increasing values v that is at most x */
+static double floor_of(const double *v, int m, double x) {
+    int lo = 0, hi = m - 1;
+    while (lo < hi) { int mid = (lo + hi + 1) / 2; if (v[mid] <= x) lo = mid; else hi = mid - 1; }
+    return v[lo];
+}
 
-/* Hill's H(n) by the epsilon limit (Coolen and Yan 2004, Section 7): rank-ordered increments on
-   the left endpoints, events before censorings at a common time, the containing region first
-   among tied left endpoints; the right endpoint of a censored region is moved past an exact
-   observation tied with it when closedR is 1. */
+/* Step 1, the tie convention: Hill's H(n) by the epsilon limit (Coolen and Yan 2004, Section 7). A
+   censored region is read as half-open, (L_i, R_i], an exact observation as the point L_i = R_i, and
+   ties are broken by increments that stand for infinitesimals:
+     - endpoint values closer than tol times the largest finite endpoint are taken as tied;
+     - the left endpoints are taken in increasing order, exact observations before censored ones at
+       a tied value and the containing region first among tied censored ones, and the k-th of them
+       receives the increment k eps;
+     - when closedR is 1 the right endpoint of a censored region is moved just past the exact
+       observations tied with it, and no further, so that those observations lie inside the region
+       and the region still ends before any censored region that starts at the same value; when
+       closedR is 0 right endpoints are not moved, and an exact observation tied with one lies
+       outside. Tied right endpoints stay tied.
+   eps <= 0 asks for an increment chosen from the data, the smallest gap between distinct endpoint
+   values divided by 64 (n + 2): no endpoint then moves by more than a sixty-fourth of that gap, so
+   the order of distinct values is never changed and the result does not depend on the unit of
+   measurement. */
 void C_npi_untie(const int *n, const double *L, const double *R, const int *ex, const double *eps,
                  const int *closedR, const double *tol, double *L2, double *R2) {
-    int nn = *n, *o = (int *)malloc(sizeof(int) * (nn > 0 ? nn : 1));
-    for (int i = 0; i < nn; i++) o[i] = i;
-    sL_ = L; sR_ = R; sE_ = ex;
+    int nn = *n, m = 0, mc = 0;
+    if (nn <= 0) return;
+    int *o = (int *)malloc(sizeof(int) * nn);
+    double *Lc = (double *)malloc(sizeof(double) * nn), *Rc = (double *)malloc(sizeof(double) * nn);
+    double *v = (double *)malloc(sizeof(double) * 2 * nn);
+    double scale = 0.0, gap = INFINITY;
+    for (int i = 0; i < nn; i++) { v[m++] = L[i]; if (isfinite(R[i])) v[m++] = R[i]; }
+    for (int j = 0; j < m; j++) if (fabs(v[j]) > scale) scale = fabs(v[j]);
+    if (!(scale > 0.0)) scale = 1.0;
+    qsort(v, m, sizeof(double), cmp_dbl);
+    double thr = (*tol > 0.0 ? *tol : 0.0) * scale;
+    for (int j = 0; j < m; j++)                           /* one representative for each set of tied values */
+        if (mc == 0 || v[j] - v[mc - 1] > thr) { if (mc > 0 && v[j] - v[mc - 1] < gap) gap = v[j] - v[mc - 1]; v[mc++] = v[j]; }
+    if (!isfinite(gap)) gap = scale;
+    double e = *eps > 0.0 ? *eps : gap / (64.0 * (nn + 2));
+    for (int i = 0; i < nn; i++) { Lc[i] = floor_of(v, mc, L[i]); Rc[i] = isfinite(R[i]) ? floor_of(v, mc, R[i]) : R[i]; o[i] = i; }
+    sL_ = Lc; sR_ = Rc; sE_ = ex;
     qsort(o, nn, sizeof(int), cmp_untie);
-    for (int k = 0; k < nn; k++) L2[o[k]] = L[o[k]] + (*eps) * (double)(k + 1);
+    for (int k = 0; k < nn; k++) L2[o[k]] = Lc[o[k]] + e * (double)(k + 1);
     for (int i = 0; i < nn; i++) {
-        if (ex[i]) { R2[i] = L2[i]; continue; }
-        int tied = 0;
-        if (isfinite(R[i]))
-            for (int j = 0; j < nn && !tied; j++) if (ex[j] && fabs(L[j] - R[i]) < *tol) tied = 1;
-        R2[i] = (*closedR && tied) ? R[i] + (*eps) * (double)(nn + 1) : R[i];
+        if (ex[i] || Rc[i] == Lc[i]) { R2[i] = L2[i]; continue; }
+        R2[i] = Rc[i];
+        if (*closedR && isfinite(Rc[i])) {
+            double top = -INFINITY;
+            for (int j = 0; j < nn; j++) if (ex[j] && Lc[j] == Rc[i] && L2[j] > top) top = L2[j];
+            if (isfinite(top)) R2[i] = top + 0.5 * e;
+        }
     }
-    free(o);
+    free(o); free(Lc); free(Rc); free(v);
 }
 
 /* ------------------------------------------------------------------------------------------- */
@@ -173,21 +210,42 @@ void C_npi_share(const int *n, const double *L, const double *R, const int *ex, 
     free(sz); free(done); free(snap); free(d);
 }
 
-/* Place the masses on intervals: observation i on (L_i, h_i), h_i the first event time after L_i,
-   truncated at R_i; the region below the smallest observation on (0, first event). */
+/* Place the masses on intervals. Each mass has a left end and a right end: observation i starts at
+   L_i and ends at R_i, the unit below the smallest observation starts at the origin, and one unit
+   ends at infinity. The left ends and the right ends are paired in increasing order, mass for mass,
+   which gives at most 2n+1 intervals; K receives their number, and lo, hi, m need 2n+1 entries.
+   On exact data these are the intervals of A(n), on right-censored data those of rc-A(n). */
+static const double *pv_;
+static int cmp_place(const void *a, const void *b) {
+    int i = *(const int *)a, j = *(const int *)b;
+    if (pv_[i] != pv_[j]) return pv_[i] < pv_[j] ? -1 : 1;
+    return i < j ? -1 : (i > j);
+}
 void C_npi_place(const int *n, const double *L, const double *R, const int *ex, const double *own,
-                 double *lo, double *hi, double *m) {
-    int nn = *n;
-    double first = INFINITY;
-    for (int i = 0; i < nn; i++) if (ex[i] && L[i] < first) first = L[i];
-    lo[0] = 0.0; hi[0] = first; m[0] = own[0];
-    for (int i = 0; i < nn; i++) {
-        double nx = INFINITY;
-        for (int j = 0; j < nn; j++) if (ex[j] && L[j] > L[i] && L[j] < nx) nx = L[j];
-        lo[i + 1] = L[i];
-        hi[i + 1] = ex[i] ? nx : (nx < R[i] ? nx : R[i]);
-        m[i + 1] = own[i + 1];
+                 int *K, double *lo, double *hi, double *m) {
+    int nn = *n, k = 0, a = 0, b = 0;
+    const double tiny = 1e-14;
+    double *va = (double *)malloc(sizeof(double) * (nn + 1)), *vb = (double *)malloc(sizeof(double) * (nn + 1));
+    double *ma = (double *)malloc(sizeof(double) * (nn + 1)), *mb = (double *)malloc(sizeof(double) * (nn + 1));
+    int *oa = (int *)malloc(sizeof(int) * (nn + 1)), *ob = (int *)malloc(sizeof(int) * (nn + 1));
+    (void)ex;
+    va[0] = -INFINITY; ma[0] = own[0];                    /* the origin, first among the left ends */
+    for (int i = 0; i < nn; i++) { va[i + 1] = L[i]; ma[i + 1] = own[i + 1]; }
+    for (int i = 0; i < nn; i++) { vb[i] = R[i]; mb[i] = own[i + 1]; }
+    vb[nn] = INFINITY; mb[nn] = own[0];                   /* the unit that ends at infinity */
+    for (int i = 0; i <= nn; i++) { oa[i] = i; ob[i] = i; }
+    pv_ = va; qsort(oa, nn + 1, sizeof(int), cmp_place);
+    pv_ = vb; qsort(ob, nn + 1, sizeof(int), cmp_place);
+    double ra = ma[oa[0]], rb = mb[ob[0]];
+    while (a <= nn && b <= nn) {
+        double piece = ra < rb ? ra : rb;
+        if (piece > tiny) { lo[k] = oa[a] == 0 ? 0.0 : va[oa[a]]; hi[k] = vb[ob[b]]; m[k] = piece; k++; }
+        ra -= piece; rb -= piece;
+        if (ra <= tiny) { a++; if (a <= nn) ra += ma[oa[a]]; }
+        if (rb <= tiny) { b++; if (b <= nn) rb += mb[ob[b]]; }
     }
+    *K = k;
+    free(va); free(vb); free(ma); free(mb); free(oa); free(ob);
 }
 
 /* Lower and upper probability of (t, infinity) for an M-function on K intervals: the mass on
@@ -318,13 +376,17 @@ done:
    Newton's method on the optimality conditions (tb_newton) then fixes the masses to machine precision;
    the iteration alone can stop well short of the optimum, notably on current-status data. When the
    masses are not identified (singular Newton system) the iteration runs on to maxit and tol as before.
-   Infinite right endpoints are replaced by 3 max(L) + 1, beyond every finite endpoint. Outputs K
-   cliques in ql, qr, p (capacity n). */
+   Inside the routine an infinite right endpoint is replaced by a stand-in value beyond every finite
+   endpoint, three times the largest finite endpoint plus one; a clique that reaches the stand-in is
+   unbounded and is returned with right end infinity. Outputs K cliques in ql, qr, p (capacity n). */
 void C_npi_turnbull(const int *n, const double *L, const double *Rin, const int *maxit,
                     const double *tol, int *K, double *ql, double *qr, double *p) {
     int nn = *n;
     double big = 0.0;
-    for (int i = 0; i < nn; i++) if (L[i] > big) big = L[i];
+    for (int i = 0; i < nn; i++) {
+        if (L[i] > big) big = L[i];
+        if (isfinite(Rin[i]) && Rin[i] > big) big = Rin[i];
+    }
     big = 3.0 * big + 1.0;
     double *R = (double *)malloc(sizeof(double) * nn);
     for (int i = 0; i < nn; i++) R[i] = isfinite(Rin[i]) ? Rin[i] : big;
@@ -378,6 +440,7 @@ void C_npi_turnbull(const int *n, const double *L, const double *Rin, const int 
         }
         free(pn); free(dd);
     }
+    for (int j = 0; j < k; j++) if (qr[j] >= big) qr[j] = INFINITY;   /* the stand-in was infinity */
     free(R); free(Ls); free(Rs);
 }
 
@@ -386,7 +449,8 @@ void C_npi_turnbull(const int *n, const double *L, const double *Rin, const int 
 /* ------------------------------------------------------------------------------------------- */
 
 /* Survival bounds of the construction at each t, with those of its members and of the Turnbull
-   ambiguity set. Outputs, each of length nt: lo, up (construction), slo, sup (M_S), plo, pup (M_P),
+   ambiguity set. The construction is the union of M_S and M_P; both lie inside M_C, so no clip
+   is applied. Outputs, each of length nt: lo, up (construction), slo, sup (M_S), plo, pup (M_P),
    clo, cup (M_C), tlo, tup (Turnbull). Evaluate away from the data values. */
 void C_npi_bounds(const int *n, const double *L, const double *R, const int *ex, const double *eps,
                   const int *closedR, const int *nt, const double *t, double *lo, double *up,
@@ -396,27 +460,26 @@ void C_npi_bounds(const int *n, const double *L, const double *R, const int *ex,
     double tol = 1e-9, tolem = 1e-13;
     double *L2 = (double *)malloc(sizeof(double) * nn), *R2 = (double *)malloc(sizeof(double) * nn);
     double *own = (double *)malloc(sizeof(double) * (nn + 1));
-    double *mlo = (double *)malloc(sizeof(double) * (nn + 1)), *mhi = (double *)malloc(sizeof(double) * (nn + 1));
-    double *mm = (double *)malloc(sizeof(double) * (nn + 1));
+    double *mlo = (double *)malloc(sizeof(double) * (2 * nn + 1)), *mhi = (double *)malloc(sizeof(double) * (2 * nn + 1));
+    double *mm = (double *)malloc(sizeof(double) * (2 * nn + 1));
     double *ql = (double *)malloc(sizeof(double) * nn), *qr = (double *)malloc(sizeof(double) * nn);
     double *pp = (double *)malloc(sizeof(double) * nn);
     C_npi_untie(n, L, R, ex, eps, closedR, &tol, L2, R2);
     C_npi_share(n, L2, R2, ex, own);
-    C_npi_place(n, L2, R2, ex, own, mlo, mhi, mm);
-    int np1 = nn + 1;
-    C_npi_mbounds(&np1, mlo, mhi, mm, &zero, nt, t, slo, sup);
-    C_npi_turnbull(n, L, R, &maxit, &tolem, &K, ql, qr, pp);
+    int KS = 0;
+    C_npi_place(n, L2, R2, ex, own, &KS, mlo, mhi, mm);
+    C_npi_mbounds(&KS, mlo, mhi, mm, &zero, nt, t, slo, sup);
+    C_npi_turnbull(n, L2, R2, &maxit, &tolem, &K, ql, qr, pp);          /* the same regions for every member */
     for (int j = 0; j < *nt; j++) {
         double a = 0.0, b = 0.0;
         for (int k = 0; k < K; k++) { if (ql[k] > t[j]) a += pp[k]; if (qr[k] > t[j]) b += pp[k]; }
         tlo[j] = a; tup[j] = b;
         plo[j] = nn * a / (nn + 1.0); pup[j] = (nn * b + 1.0) / (nn + 1.0);
         int cl = 0, cu = 0;
-        for (int i = 0; i < nn; i++) { if (L[i] > t[j]) cl++; if (R[i] >= t[j]) cu++; }
+        for (int i = 0; i < nn; i++) { if (L2[i] > t[j]) cl++; if (R2[i] > t[j]) cu++; }
         clo[j] = cl / (nn + 1.0); cup[j] = (cu + 1.0) / (nn + 1.0);
         lo[j] = slo[j] < plo[j] ? slo[j] : plo[j];
-        double u = sup[j] > pup[j] ? sup[j] : pup[j];
-        up[j] = u < cup[j] ? u : cup[j];
+        up[j] = sup[j] > pup[j] ? sup[j] : pup[j];
     }
     (void)one;
     free(L2); free(R2); free(own); free(mlo); free(mhi); free(mm); free(ql); free(qr); free(pp);
@@ -467,8 +530,8 @@ static double binom_tail(int m, int r, double t) {
 }
 
 /* Level one: past years' rates are known to lie in [L_j, R_j] within [0, 1] (L_j = R_j when the
-   rate is taken as known); the construction (A(n) on exact years, the union of M_S and M_P clipped
-   to M_C otherwise) gives lower and upper survival functions S_lo, S_up for next year's rate.
+   rate is taken as known); the construction (A(n) on exact years, the union of M_S and M_P
+   otherwise) gives lower and upper survival functions S_lo, S_up for next year's rate.
    Level two: given that rate t, the number D of events among m units is Bin(m, t).
    For the increasing function g(t) = P(Bin(m, t) >= r), the lower and upper probabilities are the
    integrals of S_lo and S_up against dg over [0, 1], evaluated exactly on the segments between the
@@ -491,7 +554,7 @@ void C_npi_twolevel(const int *n, const double *L, const double *R, const int *m
     int *ex = (int *)malloc(sizeof(int) * (nn > 0 ? nn : 1));
     double *R1 = (double *)malloc(sizeof(double) * (nn > 0 ? nn : 1));
     for (int i = 0; i < nn; i++) { ex[i] = (L[i] == R[i]); R1[i] = isfinite(R[i]) && R[i] < 1.0 ? R[i] : 1.0; if (ex[i]) R1[i] = L[i]; }
-    double eps = 1e-12;
+    double eps = 0.0;                                     /* increment chosen from the data */
     C_npi_bounds(n, L, R1, ex, &eps, closedR, &ns, mid, b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9]);
     for (int j = 0; j < *nr; j++) {
         double gl = binom_tail(*m, r[j], bp[0]), a = 0.0, c = 0.0;

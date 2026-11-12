@@ -4,19 +4,40 @@
 \alias{npi_turnbull}
 \title{The Turnbull estimator}
 \usage{
-npi_turnbull(L, R, maxit = 20000L, tol = 1e-13)
+npi_turnbull(
+  L,
+  R,
+  maxit = 20000L,
+  tol = 1e-13,
+  untie = TRUE,
+  closedR = TRUE,
+  eps = 0
+)
 }
 \arguments{
-\item{L, R}{region endpoints; \code{R = Inf} for right censoring.}
+\item{L, R}{region endpoints, not negative; \code{R = Inf} for right censoring.}
 
 \item{maxit, tol}{iteration limit and convergence tolerance.}
+
+\item{untie}{logical; break ties first (the default) or take the regions as closed sets.}
+
+\item{closedR, eps}{tie convention, as in \code{\link{npi_mfun}}; used when \code{untie} is true.}
 }
 \value{
-A data frame of cliques \code{left}, \code{right} and \code{mass}.
+A data frame of cliques \code{left}, \code{right} and \code{mass}, with ends at data
+  values; a clique that is unbounded above, which arises only from right-censored observations,
+  has \code{right = Inf}.
 }
 \description{
 The nonparametric maximum likelihood estimator for censored data (Turnbull 1976): its maximal
-cliques and their masses, by the self-consistency iteration.
+cliques and their masses, by the self-consistency iteration followed by Newton's method on the
+optimality conditions.
+}
+\details{
+By default ties are broken first, as in \code{\link{npi_mfun}}: a censored region is read as
+half-open, \eqn{(L_i, R_i]}, which is the usual reading of inspection data and makes the
+estimator the Kaplan-Meier estimator under right censoring, an event preceding a censoring tied
+with it. With \code{untie = FALSE} the regions are taken as closed sets exactly as given.
 }
 \examples{
 npi_turnbull(c(3.5, 3.4, 4.7, 6.9, 5.6, 2.4), c(6.5, 6.8, 5.9, 6.9, 7.9, 6.4))

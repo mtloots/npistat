@@ -42,8 +42,8 @@ the next observation cannot exceed the largest event.
 
 Each observation is a region $[L_i, R_i]$. The survival bounds of `npi_survival()` are the union of
 a sharing specification, which reproduces $\text{rc-}A_{(n)}$ under right censoring, and a
-specification anchored to the Turnbull estimator, clipped to the bound over all completions of the
-data. They contain the Turnbull estimator under every censoring pattern. On six observations where
+specification anchored to the Turnbull estimator; both lie inside the bound over all completions of
+the data. They contain the Turnbull estimator under every censoring pattern. On six observations where
 sharing alone would not:
 
 ```{r}
@@ -52,8 +52,11 @@ npi_turnbull(L, R)
 npi_survival(L, R, t = 5.75, members = TRUE)
 ```
 
-Evaluate the bounds away from the data values: at a tied value the members count the tie on
-opposite sides.
+Ties are broken first, by one convention for every member: a censored region is read as half-open,
+$(L_i, R_i]$, so that an exact value tied with its right end lies inside it, an exact value tied with
+its left end lies outside and below it, and a region that ends at a value lies below a region that
+starts there. The bounds are step functions that jump at the data values, so evaluate them between
+data values.
 
 ## Several future Bernoulli observations
 
