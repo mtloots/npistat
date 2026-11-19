@@ -1,0 +1,11 @@
+bibentry(
+  bibtype = "Manual",
+  title = "{npistat}: Nonparametric Predictive Inference for Censored and Bernoulli Data",
+  author = person("M. Theodor", "Loots", comment = c(ORCID = "0000-0001-7722-3913")),
+  year = "2026",
+  note = paste("R package version", meta$Version),
+  url = "https://github.com/mtloots/npistat",
+  textVersion = paste0(
+    "Loots, M. T. (2026). npistat: Nonparametric Predictive Inference for Censored and Bernoulli Data. ",
+    "R package version ", meta$Version, ". https://github.com/mtloots/npistat")
+)
